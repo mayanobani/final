@@ -1,0 +1,30 @@
+name: CI/CD - Skills Utilization
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Retrieve secrets from Vault and build .env
+        env:
+          VAULT_ADDR: http://<server-ip>:8200
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          bash /home/aau/Desktop/Skills_Utilization/vault-script.sh
+
+      - name: Build and deploy with Docker Compose
+        run: |
+          cd /home/aau/Desktop/Skills_Utilization
+          docker compose down
+          docker compose up -d --build
+
+      - name: Prune old images
+        run: docker image prune -f
