@@ -61,6 +61,8 @@ jobs:
       - name: Pull latest image and redeploy
         run: |
           cd /home/aau/Desktop/Skills_Utilization
-          docker compose pull
+          docker compose down
+          docker container prune -f
+          ./vault-script.sh
           docker compose up -d
-          docker image prune -f
+          docker compose up -d
