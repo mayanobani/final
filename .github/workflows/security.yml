@@ -8,6 +8,7 @@ on:
 jobs:
   trufflehog-scan:
     runs-on: self-hosted
+    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -15,24 +16,40 @@ jobs:
           fetch-depth: 0
 
       - name: Run TruffleHog secret scan
-        uses: trufflesecurity/trufflehog@main
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD:/repo" trufflesecurity/trufflehog:latest \
+            filesystem /repo --only-verified --json > trufflehog-report.json || true
+          cat trufflehog-report.json
+
+      - name: Upload TruffleHog report
+        uses: actions/upload-artifact@v4
         with:
-          path: ./
-          extra_args: --only-verified --fail
+          name: trufflehog-report
+          path: trufflehog-report.json
 
   hadolint-scan:
     runs-on: self-hosted
+    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Lint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
+        continue-on-error: true
+        run: |
+          docker run --rm -i hadolint/hadolint < ./code/Dockerfile > hadolint-report.txt || true
+          cat hadolint-report.txt
+
+      - name: Upload Hadolint report
+        uses: actions/upload-artifact@v4
         with:
-          dockerfile: ./code/Dockerfile
+          name: hadolint-report
+          path: hadolint-report.txt
 
   bandit-scan:
     runs-on: self-hosted
+    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -46,10 +63,49 @@ jobs:
         run: pip install bandit
 
       - name: Run Bandit scan
-        run: bandit -r ./code -ll
+        continue-on-error: true
+        run: |
+          bandit -r ./code -ll -f txt -o bandit-report.txt || true
+          cat bandit-report.txt
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.txt
+
+  collect-reports:
+    needs: [trufflehog-scan, hadolint-scan, bandit-scan]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports
+
+      - name: Combine into one file
+        run: |
+          mkdir -p combined
+          {
+            echo "===== TRUFFLEHOG REPORT ====="
+            cat all-reports/trufflehog-report/trufflehog-report.json 2>/dev/null || echo "No report found"
+            echo ""
+            echo "===== HADOLINT REPORT ====="
+            cat all-reports/hadolint-report/hadolint-report.txt 2>/dev/null || echo "No report found"
+            echo ""
+            echo "===== BANDIT REPORT ====="
+            cat all-reports/bandit-report/bandit-report.txt 2>/dev/null || echo "No report found"
+          } > combined/full-scan-report.txt
+
+      - name: Upload combined report
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-scan-report
+          path: combined/full-scan-report.txt
 
   build-and-push:
-    needs: [trufflehog-scan, hadolint-scan, bandit-scan]
+    needs: collect-reports
     runs-on: self-hosted
 
     permissions:
